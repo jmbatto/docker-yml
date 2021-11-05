@@ -1,8 +1,8 @@
-FROM debian:buster-slim
+FROM debian:stretch-slim
 
 RUN apt-get update \
     && mkdir -p /usr/share/man/man1 \
-    && apt-get install -y gcc ssh wget vim curl net-tools bison flex openjdk-11-jdk autoconf make libtool m4 automake bzip2 libxml2 libxml2-dev gfortran g++ iputils-ping pkg-config libtdl* \
+    && apt-get install -y gcc ssh wget vim curl net-tools bison flex openjdk-8-jdk autoconf make libtool m4 automake bzip2 libxml2 libxml2-dev gfortran g++ iputils-ping pkg-config colordiff nano libtdl* \
     && curl --location --silent --show-error --output /tini \
        https://github.com/krallin/tini/releases/download/v0.19.0/tini \
     && chmod +x /tini \
@@ -25,7 +25,7 @@ ENV PREFIX=/usr/local \
 	OPENMPI_VERSION=3.1.6 \
 	EXPAT_VERSION=2.4.1 \
 	EXPAT_TAG=R_2_4_1 \
-    LD_LIBRARY_PATH=${PREFIX}/lib \
+    LD_LIBRARY_PATH=/usr/local/lib \
     DEBCONF_NOWARNINGS=yes
 
 # Open-UCX : high speed network abstraction
@@ -48,6 +48,7 @@ RUN repo="https://download.open-mpi.org/release/open-mpi/v3.1" \
       "${repo}/openmpi-${OPENMPI_VERSION}.tar.gz" \
     && tar xzf openmpi.tar.gz -C /tmp/ \
     && cd /tmp/openmpi-${OPENMPI_VERSION} \
+	&& env CFLAGS="-O2 -std=gnu99 -fopenmp" \
     && ./configure --prefix=${PREFIX} --with-ucx --with-ucx-libdir=/usr/local/lib \
     && make \
     && make install \
@@ -82,26 +83,29 @@ RUN wget --no-check-certificate --content-disposition http://www.hpcs.cs.tsukuba
     rm fp2c-140619.tar.gz && \
     mv fp2c-140619 YMLEnvironment
 
-# load omni-compiler 1.3.4
-WORKDIR /home/ymluser/YMLEnvironment
-RUN wget --no-check-certificate --content-disposition https://omni-compiler.org/download/stable/omnicompiler-1.3.4.tar.bz2
-RUN bunzip2 omnicompiler-1.3.4.tar.bz2 \
-	&& tar xvf omnicompiler-1.3.4.tar \
-	&& rm /home/ymluser/YMLEnvironment/omnicompiler-1.3.4.tar
 
-# omnicompiler-1.3.4 : requested javac
-WORKDIR /home/ymluser/YMLEnvironment/omnicompiler-1.3.4
-RUN cd /home/ymluser/YMLEnvironment/omnicompiler-1.3.4 \
+# load omni-compiler 1.1.3
+WORKDIR /home/ymluser/YMLEnvironment
+RUN wget --no-check-certificate --content-disposition https://omni-compiler.org/download/stable/omnicompiler-1.1.3.tar.bz2
+RUN bunzip2 omnicompiler-1.1.3.tar.bz2 \
+	&& tar xvf omnicompiler-1.1.3.tar \
+	&& rm /home/ymluser/YMLEnvironment/omnicompiler-1.1.3.tar
+
+# omnicompiler-1.1.3 : requested javac
+WORKDIR /home/ymluser/YMLEnvironment/omnicompiler-1.1.3
+RUN cd /home/ymluser/YMLEnvironment/omnicompiler-1.1.3 \
 	&& libtoolize --force \
 	&& aclocal \
 	&& autoheader \
 	&& autoconf \
-	&& env CFLAGS="-I${PREFIX}/include -Wl,--copy-dt-needed-entries,--allow-multiple-definition" ./configure --prefix=${PREFIX} --with-libxml2-include=/usr/include/libxml2 \
+	&& ./configure --prefix=${PREFIX} --with-libxml2=/usr \
+#	&& env CFLAGS="-I${PREFIX}/include -Wl,--copy-dt-needed-entries,--allow-multiple-definition" ./configure --prefix=${PREFIX} --with-libxml2-include=/usr/include/libxml2 \
 	&& make && make install && make clean && ldconfig
 
 # omnirpc-mpi-2.2.2 : mpi 3.1
 WORKDIR /home/ymluser/YMLEnvironment/omnirpc-mpi-2.2.2
 RUN cd /home/ymluser/YMLEnvironment/omnirpc-mpi-2.2.2 \
+    && export CPPFLAGS="-DOMNI_CPU_X86_64 -DOMNI_OS_LINUX -DNDEBUG -D_REENTRANT" \
 	&& env CFLAGS="-Wl,--no-relax" ./configure --prefix=${PREFIX} --enable-gcc --with-cc=mpicc --with-opt=-fPIC \
 	&& make && make install && make clean && ldconfig
 
@@ -123,13 +127,38 @@ RUN cd /home/ymluser/YMLEnvironment/libutil-0.1.5 \
 	&& env CPPFLAGS=-std=c++03 ./configure --prefix=${PREFIX} --with-expat-incdir=${PREFIX}/include --with-expat-libdir=${PREFIX}/lib \
 	&& make && make install && make clean && ldconfig
 
+#patch yml2.3 --> add fopenmp + clean init/finalize
+WORKDIR /home/ymluser/YMLEnvironment/yml-2.3.0
+RUN echo "patch yml2.3\n" \
+	&& cd /home/ymluser/YMLEnvironment/yml-2.3.0/src/Plugins/Catalogs/DefaultExecutionCatalog \
+	&& sed -i s/\"\-lm\"/\"\-lm\"\ \<\<\ \"\-fopenmp\"/g ./XMPBinaryGenerator.cc \
+	&& echo "extern void xmpc_init_all(int, char **);\n" \
+	"extern void xmpc_finalize_all(int);\n" \
+	"void __XMP_init(int argc, char **argv)\n" \
+	"{ \n" \
+	"  xmpc_init_all(argc, argv);\n" \
+	"}\n" \
+	"void __XMP_finalize()\n"\
+	"{ \n"\
+	"  xmpc_finalize_all(0);\n" \
+	"}" >> xmp_std_lib.c
+
+
 WORKDIR /home/ymluser/YMLEnvironment/yml-2.3.0
 RUN cd /home/ymluser/YMLEnvironment/yml-2.3.0 \
-	&& env CPPFLAGS="-I${PREFIX}/include -std=c++03 -DOMPI_SKIP_MPICXX" ./configure --prefix=${PREFIX} --with-expat-incdir=${PREFIX}/include --with-expat-libdir=${PREFIX}/lib --with-mpi-lib="-L/usr/local/lib -lmpi -lutil" --disable-xtremweb-net \
+    && libtoolize --force \
+	&& aclocal \
+	&& autoheader \
+	&& automake --force-missing --add-missing \
+	&& autoconf \
+	&& export CXXFLAGS="-Wl,--no-as-needed,--copy-dt-needed-entries,--allow-multiple-definition" \
+	&& export CFLAGS="-I${PREFIX}/include -DOMPI_SKIP_MPICXX -Wl,--no-undefined,--no-allow-shlib-undefined,--copy-dt-needed-entries,--allow-multiple-definition" \
+	&& export CPPFLAGS="-I${PREFIX}/include -std=c++03 -DOMPI_SKIP_MPICXX" \
+	&& ./configure --prefix=${PREFIX} --with-expat-incdir=${PREFIX}/include --with-expat-libdir=${PREFIX}/lib --with-mpi-lib="-L/usr/local/lib -lmpi -lutil" \
 	&& make && make install && make clean && ldconfig
 
 WORKDIR /home/ymluser
-
+# -Wl,--no-undefined,--no-allow-shlib-undefined,--copy-dt-needed-entries,--allow-multiple-definition
 ENTRYPOINT ["/tini", "--"]
 # do not detach (-D), log to stderr (-e)
 CMD ["/usr/sbin/sshd", "-D", "-e"]

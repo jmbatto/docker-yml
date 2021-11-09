@@ -2,7 +2,7 @@ FROM debian:stretch-slim
 
 RUN apt-get update \
     && mkdir -p /usr/share/man/man1 \
-    && apt-get install -y gcc ssh wget vim curl net-tools bison flex openjdk-8-jdk autoconf make libtool m4 automake bzip2 libxml2 libxml2-dev gfortran g++ iputils-ping pkg-config colordiff nano git libtdl* \
+    && apt-get install -y gcc ssh wget vim curl net-tools bison flex openjdk-8-jdk autoconf make libtool m4 automake bzip2 libxml2 libxml2-dev gfortran g++ iputils-ping pkg-config colordiff nano git sudo libtdl* \
     && curl --location --silent --show-error --output /tini \
        https://github.com/krallin/tini/releases/download/v0.19.0/tini \
     && chmod +x /tini \
@@ -19,7 +19,8 @@ RUN apt-get update \
     && sed -i s/#PasswordAuthentication.*/PasswordAuthentication\ yes/ /etc/ssh/sshd_config \
     && sed -i s/#PermitEmptyPasswords.*/PermitEmptyPasswords\ yes/ /etc/ssh/sshd_config \
     && sed -i s/#ChallengeResponse.*/ChallengeResponseAuthentication\ no/ /etc/ssh/sshd_config \
-    && sed -i s/#PermitUserEnvironment.*/PermitUserEnvironment\ yes/ /etc/ssh/sshd_config
+    && sed -i s/#PermitUserEnvironment.*/PermitUserEnvironment\ yes/ /etc/ssh/sshd_config \
+	&& adduser ymluser sudo
 
 ENV PREFIX=/usr/local \
 	OPENMPI_VERSION=3.1.6 \
@@ -154,6 +155,11 @@ RUN cd /home/ymluser/YMLEnvironment/yml-2.3.0 \
 	&& make && make install && make clean && ldconfig
 
 	
+RUN mkdir -p /usr/local/var/yml
+RUN	mkdir -p /home/ymluser/.omrpc_registry && chown 1000:1000 /home/ymluser/.omrpc_registry
+RUN mkdir -p /usr/local/var/yml/DefaultExecutionCatalog/indexes && chown -R 1000:1000 /usr/local/var/yml
+
+RUN echo "ymluser ALL=(ALL) NOPASSWD:ALL\n" >> /etc/sudoers
 
 RUN rm -fr /home/ymluser/.openmpi && mkdir -p /home/ymluser/.openmpi
 RUN cd /home/ymluser/.openmpi \

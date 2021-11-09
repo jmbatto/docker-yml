@@ -2,7 +2,7 @@ FROM debian:stretch-slim
 
 RUN apt-get update \
     && mkdir -p /usr/share/man/man1 \
-    && apt-get install -y gcc ssh wget vim curl net-tools bison flex openjdk-8-jdk autoconf make libtool m4 automake bzip2 libxml2 libxml2-dev gfortran g++ iputils-ping pkg-config colordiff nano libtdl* \
+    && apt-get install -y gcc ssh wget vim curl net-tools bison flex openjdk-8-jdk autoconf make libtool m4 automake bzip2 libxml2 libxml2-dev gfortran g++ iputils-ping pkg-config colordiff nano git libtdl* \
     && curl --location --silent --show-error --output /tini \
        https://github.com/krallin/tini/releases/download/v0.19.0/tini \
     && chmod +x /tini \
@@ -28,28 +28,17 @@ ENV PREFIX=/usr/local \
     LD_LIBRARY_PATH=/usr/local/lib \
     DEBCONF_NOWARNINGS=yes
 
-# Open-UCX : high speed network abstraction
-WORKDIR /home/ymluser
-RUN  wget --no-check-certificate --content-disposition "https://github.com/openucx/ucx/releases/download/v1.11.2/ucx-1.11.2.tar.gz" \
-	&& tar xzf ucx-1.11.2.tar.gz \
-	&& rm -rf /home/ymluser/ucx-1.11.2.tar.gz \
-	&& cd /home/ymluser/ucx-1.11.2 \
-	&& ./configure --prefix=${PREFIX} \
-    && make \
-    && make install \
-    && ldconfig
-	
 
 # https://download.open-mpi.org/release/open-mpi/v3.1/openmpi-3.1.6.tar.gz
 
-# OpenMPI v3.1 : use Open-UCX
+# OpenMPI v3.1
 RUN repo="https://download.open-mpi.org/release/open-mpi/v3.1" \
     && curl --location --silent --show-error --output openmpi.tar.gz \
       "${repo}/openmpi-${OPENMPI_VERSION}.tar.gz" \
     && tar xzf openmpi.tar.gz -C /tmp/ \
     && cd /tmp/openmpi-${OPENMPI_VERSION} \
 	&& env CFLAGS="-O2 -std=gnu99 -fopenmp" \
-    && ./configure --prefix=${PREFIX} --with-ucx --with-ucx-libdir=/usr/local/lib \
+    && ./configure --prefix=${PREFIX} \
     && make \
     && make install \
     && ldconfig \
@@ -76,6 +65,8 @@ RUN repo="https://github.com/libexpat/libexpat/tarball/${EXPAT_TAG}" \
 	&& cd /home/ymluser \
 	&& rm -rf /tmp/libexpat-${EXPAT_VERSION} /home/ymluser/libexpat.tar.gz
 
+
+
 # load full bundle
 WORKDIR /home/ymluser
 RUN wget --no-check-certificate --content-disposition http://www.hpcs.cs.tsukuba.ac.jp/~tsuji/fp2c-140619.tar.gz && \
@@ -101,6 +92,11 @@ RUN cd /home/ymluser/YMLEnvironment/omnicompiler-1.1.3 \
 	&& ./configure --prefix=${PREFIX} --with-libxml2=/usr \
 #	&& env CFLAGS="-I${PREFIX}/include -Wl,--copy-dt-needed-entries,--allow-multiple-definition" ./configure --prefix=${PREFIX} --with-libxml2-include=/usr/include/libxml2 \
 	&& make && make install && make clean && ldconfig
+
+WORKDIR /home/ymluser/YMLEnvironment/omnirpc-mpi-2.2.2
+RUN echo "patch omnirpc-mpi-2.2.2\n" \
+	&& cd /home/ymluser/YMLEnvironment/omnirpc-mpi-2.2.2/src/omrpc-register-yml       \
+	&& sed -i s/\-lm/\-lm\ \-fopenmp/g ./omrpc-register-yml.c
 
 # omnirpc-mpi-2.2.2 : mpi 3.1
 WORKDIR /home/ymluser/YMLEnvironment/omnirpc-mpi-2.2.2
@@ -157,6 +153,19 @@ RUN cd /home/ymluser/YMLEnvironment/yml-2.3.0 \
 	&& ./configure --prefix=${PREFIX} --with-expat-incdir=${PREFIX}/include --with-expat-libdir=${PREFIX}/lib --with-mpi-lib="-L/usr/local/lib -lmpi -lutil" \
 	&& make && make install && make clean && ldconfig
 
+	
+
+RUN rm -fr /home/ymluser/.openmpi && mkdir -p /home/ymluser/.openmpi
+RUN cd /home/ymluser/.openmpi \
+	&& echo "btl=tcp,self\n" \
+	"btl_tcp_if_include=eth0\n" \
+	"plm_rsh_no_tree_spawn=1\n" >> default-mca-params.conf
+
+RUN chown -R 1000:1000 /home/ymluser/.openmpi
+RUN chown -R 1000:1000 /home/ymluser/YMLEnvironment
+
+# switch to ymluser
+USER 1000:1000
 WORKDIR /home/ymluser
 # -Wl,--no-undefined,--no-allow-shlib-undefined,--copy-dt-needed-entries,--allow-multiple-definition
 ENTRYPOINT ["/tini", "--"]

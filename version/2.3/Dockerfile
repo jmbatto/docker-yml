@@ -185,6 +185,7 @@ RUN cd /home/ymluser/YMLEnvironment/yml-2.3.0 \
 # ------------------------------------------------------------	
 RUN mkdir -p /usr/local/var/yml
 RUN	mkdir -p /home/ymluser/.omrpc_registry && chown 1000:1000 /home/ymluser/.omrpc_registry
+RUN ln -s /home/ymluser/.omrpc_registry /home/.omrpc_registry
 RUN mkdir -p /usr/local/var/yml/DefaultExecutionCatalog/indexes && chown -R 1000:1000 /usr/local/var/yml
 
 RUN echo "ymluser ALL=(ALL) NOPASSWD:ALL\n" >> /etc/sudoers

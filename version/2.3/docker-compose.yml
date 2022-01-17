@@ -3,12 +3,13 @@
 # docker swarm init, then you have to do // note version_mpinet is the name of the overlay
 # docker network create --driver=overlay --attachable version_mpinet
 # Nov, 13, 2021 - Jean-Michel Batto
-version: '3'
+version: "3.9"
 services:
   mpihead:
     image: jmbatto/yml:2.3
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - usrlocalvaryml-foo:/usr/local/var/yml
     ports: 
       - "22"
     links: 
@@ -26,6 +27,7 @@ services:
     image: jmbatto/yml:2.3
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - usrlocalvaryml-foo:/usr/local/var/yml
     networks:
       - mpinet
     secrets:                   
@@ -44,4 +46,9 @@ secrets:
     file: ssh/id_rsa.mpi.pub
 networks:
   mpinet:
-    driver: overlay
+    external: true
+    name : yml_mpinet
+    driver: overlay  
+volumes:
+  usrlocalvaryml-foo:
+    
